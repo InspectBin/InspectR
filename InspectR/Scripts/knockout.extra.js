@@ -3,13 +3,6 @@
 (function ($, ko) {
     "use strict";
 
-    var formatCodeMirror = function (cm) {
-        CodeMirror.commands["selectAll"](cm);
-        cm.autoFormatRange(cm.getCursor(true), cm.getCursor(false));
-        cm.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 0 });
-        // cm.setCursor(0, 0);
-    };
-
     Date.prototype.getMonthName = function (lang) {
         lang = lang && (lang in Date.locale) ? lang : 'en';
         return Date.locale[lang].month_names[this.getMonth()];
@@ -30,11 +23,11 @@
         return Date.locale[lang].day_names_short[this.getDay()];
     };
 
-    Date.prototype.format = function (datestring, format, lang) {
+    Date.prototype.format = function (format, lang) {
         format = format || 'yyyy-MM-dd HH:mm.fff';
         lang = lang || (navigator.language ? navigator.language : navigator.userLanguage);
 
-        var d = new Date(datestring);
+        var d = this;
         var date = format;
 
         // year
@@ -107,6 +100,11 @@
         }
     };
 
+    String.prototype.fromJsonDate = function () {
+        // converts microsoft json date to js Date. credits Jabbr.net
+        return eval(this.replace(/\/Date\((\d+)(\+|\-)?.*\)\//gi, "new Date($1)"));
+    };
+    
     ko.bindingHandlers['dateformat'] = {
         init: function (element, valueAccessor, allBindingsAccessor, viewModel, bindingContext) {
         },
@@ -115,7 +113,7 @@
                 format = 'yyyy-MM-dd HH:mm.fff',
                 lang = navigator.language ? navigator.language : navigator.userLanguage,
                 cfg, date;
-
+            
             if (ko.isObservable(value) || !value.date) {
                 date = ko.utils.unwrapObservable(value);
             } else {
@@ -124,9 +122,55 @@
                 lang = ko.utils.unwrapObservable(cfg.lang) || lang;
                 date = ko.utils.unwrapObservable(cfg.date);
             }
+            
+            if (Object.prototype.toString.call(date) !== '[object Date]') {
+                if (date.indexOf('Date') != -1) {
+                    date = date.fromJsonDate();
+                } else {
+                    date = new Date(date);
+                }
+            }
+            
+            var dateformatted = Date.prototype.format.call(date, format, lang);
+            ko.bindingHandlers['text'].update(element, function () { return dateformatted; }, allBindingsAccessor, viewModel, bindingContext);
+        }
+    };
 
-            var dateformat = Date.prototype.format(date, format, lang);
-            ko.bindingHandlers['text'].update(element, function () { return dateformat; }, allBindingsAccessor, viewModel, bindingContext);
+    var formatCodeMirror = function (cm) {
+        var totalLines = cm.lineCount();
+        cm.autoFormatRange(
+            { line: 0, ch: 0 },
+            { line: totalLines - 1, ch: cm.getLine(totalLines - 1).length }
+        );
+        cm.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 0 });
+        
+        //CodeMirror.commands["selectAll"](cm);
+        //cm.autoFormatRange(cm.getCursor(true), cm.getCursor(false));
+        //cm.setSelection({ line: 0, ch: 0 }, { line: 0, ch: 0 });
+        //// cm.setCursor(0, 0);
+    };
+
+    ko.bindingHandlers['withCodeMirror'] = {
+        init: function (element, valueAccessor, allBindingsAccessor, viewModel, bindingContext) {
+            var name = ko.utils.unwrapObservable(valueAccessor());
+
+            var vm = {
+                codeMirror: null,
+                LineWrapping: ko.observable(false),
+                formatCodeMirror: function () {
+                    formatCodeMirror(vm.codeMirror);
+                }
+            };
+
+            vm.LineWrapping.subscribe(function (newval) {
+                vm.codeMirror.setOption('lineWrapping', newval);
+                vm.codeMirror.setValue(vm.codeMirror.getValue());
+            });
+            
+            bindingContext[name] = vm;
+            ko.applyBindingsToDescendants(bindingContext, element);
+
+            return { controlsDescendantBindings: true };
         }
     };
 
@@ -135,26 +179,19 @@
             var config = ko.utils.unwrapObservable(valueAccessor()),
                 name = ko.utils.unwrapObservable(config.name);
 
+            var content = ko.utils.unwrapObservable(config.text);
+            $(element).val(content);
             var codeMirror = CodeMirror.fromTextArea(element, {
-                // TODO: from (default) config
-                lineNumbers: false,
+                lineWrapping: false,
+                lineNumbers: true,
                 readOnly: true
             });
-            viewModel[name] = codeMirror;
-            viewModel[name].formatCodeMirror = function () {
-                formatCodeMirror(codeMirror);
-            };
+            bindingContext[name].codeMirror = codeMirror;
 
             ko.computed(function () {
                 var contentType = ko.utils.unwrapObservable(config.contentType);
                 codeMirror.setOption('mode', contentType);
-            });
-
-            ko.computed(function () {
-                var content = ko.utils.unwrapObservable(config.text);
-                codeMirror.setValue(content);
-                // todo: make option to autoformat or not.
-                // formatCodeMirror(codeMirror);
+                formatCodeMirror(codeMirror);
             });
         },
         update: function (element, valueAccessor, allBindingsAccessor, viewModel, bindingContext) {
