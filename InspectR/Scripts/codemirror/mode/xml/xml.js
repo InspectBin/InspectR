@@ -70,11 +70,12 @@ CodeMirror.defineMode("xml", function(config, parserConfig) {
         return "meta";
       }
       else {
-        type = stream.eat("/") ? "closeTag" : "openTag";
-        stream.eatSpace();
+        var isClose = stream.eat("/");
         tagName = "";
         var c;
         while ((c = stream.eat(/[^\s\u00a0=<>\"\'\/?]/))) tagName += c;
+        if (!tagName) return "error";
+        type = isClose ? "closeTag" : "openTag";
         state.tokenize = inTag;
         return "tag";
       }
@@ -309,7 +310,9 @@ CodeMirror.defineMode("xml", function(config, parserConfig) {
       else return 0;
     },
 
-    electricChars: "/"
+    electricChars: "/",
+
+    configuration: parserConfig.htmlMode ? "html" : "xml"
   };
 });
 

@@ -1,21 +1,21 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Web;
-using System.Web.Caching;
-using InspectR.Data;
-
 namespace InspectR.Core
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Web;
+    using System.Web.Caching;
+
+    using InspectR.Data;
+
     public class RequestCache : IRequestCache
     {
         protected Cache Cache
         {
-            get { return HttpContext.Current.Cache; }
-        }
-
-        public RequestCache()
-        {
+            get
+            {
+                return HttpContext.Current.Cache;
+            }
         }
 
         public void Store(InspectorInfo inspector, RequestInfo request)
@@ -29,17 +29,14 @@ namespace InspectR.Core
             }
             requests.Add(request);
             Cache.Insert("inspectR" + inspector.Id, requests, null, Cache.NoAbsoluteExpiration, TimeSpan.FromDays(1));
-
-            //using (var context = new InspectRContext())
-            //{
-            //    context.Requests.Add(new RequestInfoEntry(inspector, request));
-            //    context.SaveChanges();
-            //}
         }
 
         private IList<RequestInfo> GetInternal(InspectorInfo inspector)
         {
-            if (inspector == null) throw new ArgumentNullException("inspector");
+            if (inspector == null)
+            {
+                throw new ArgumentNullException("inspector");
+            }
             var requests = Cache["inspectR" + inspector.Id] as IList<RequestInfo>;
             if (requests == null)
             {

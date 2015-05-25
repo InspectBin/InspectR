@@ -1,19 +1,22 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Web;
-using InspectR.Controllers;
-using InspectR.Core;
-using InspectR.Data;
-using Microsoft.AspNet.SignalR.Hubs;
-
-namespace InspectR.Hubs
+﻿namespace InspectR.Hubs
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Threading.Tasks;
+
+    using InspectR.Core;
+    using InspectR.Data;
+
+    using Microsoft.AspNet.SignalR;
+
     public class InspectRHub : Hub
     {
-        private IRequestCache _requestCache;
-        private InspectRContext _dbContext;
-        private IInspectRService _service;
+        private readonly IRequestCache _requestCache;
+
+        private readonly InspectRContext _dbContext;
+
+        private readonly InspectRService _service;
 
         public InspectRHub()
         {
@@ -22,22 +25,52 @@ namespace InspectR.Hubs
             _service = new InspectRService(_dbContext);
         }
 
+        public override Task OnReconnected()
+        {
+            InspectRGroupsModule.OnReconnected(this);
+            return base.OnReconnected();
+        }
+
+        /// <summary>
+        ///     Called when a connection disconnects from this hub gracefully or due to a timeout.
+        /// </summary>
+        /// <param name="stopCalled">
+        ///     true, if stop was called on the client closing the connection gracefully;
+        ///     false, if the connection has been lost for longer than the
+        ///     <see cref="P:Microsoft.AspNet.SignalR.Configuration.IConfigurationManager.DisconnectTimeout" />.
+        ///     Timeouts can be caused by clients reconnecting to another SignalR server in scaleout.
+        /// </param>
+        /// <returns>
+        ///     A <see cref="T:System.Threading.Tasks.Task" />
+        /// </returns>
+        public override Task OnDisconnected(bool stopCalled)
+        {
+            InspectRGroupsModule.StopInspect(this);
+            return base.OnDisconnected(stopCalled);
+        }
+
+        public InspectorInfo StopInspect(Guid id)
+        {
+            var info = _dbContext.GetInspectorInfo(id);
+            if (info == null)
+            {
+                return null;
+            }
+
+            InspectRGroupsModule.StopInspect(this, info.UniqueKey);
+
+            return info;
+        }
+
         public InspectorInfo StartInspect(string inspector)
         {
             var info = _dbContext.GetInspectorInfoByKey(inspector);
             if (info == null)
-                return null;
-
-            if (Context.User != null)
             {
-                var user = Context.User.Identity.Name;
-                if (!string.IsNullOrEmpty(user))
-                {
-                    _service.AddInspectorToUser(user, info);
-                }
+                return null;
             }
 
-            Groups.Add(Context.ConnectionId, info.UniqueKey);
+            InspectRGroupsModule.StartInspect(this, info.UniqueKey);
 
             return info;
         }
@@ -57,16 +90,37 @@ namespace InspectR.Hubs
             return null;
         }
 
-        public IEnumerable<RequestInfo> GetRecentRequests(string inspector)
+        public void RemoveInspectorFromUserProfile(Guid inspectorId)
         {
-            InspectorInfo inspectorInfo = _dbContext.GetInspectorInfoByKey(inspector);
-            var recentRequests = _requestCache.Get(inspectorInfo).OrderByDescending(x=>x.DateCreated).Take(20);
+            if (Context.User != null)
+            {
+                var username = Context.User.Identity.Name;
+                if (!string.IsNullOrEmpty(username))
+                {
+                    _service.RemoveInspectorFromUser(username, inspectorId);
+                }
+            }
+        }
+
+        public IEnumerable<RequestInfo> GetRecentRequests(string uniquekey)
+        {
+            var inspectorInfo = _dbContext.GetInspectorInfoByKey(uniquekey);
+            if (inspectorInfo == null)
+            {
+                throw new Exception("Can't find inspector");
+            }
+
+            var recentRequests = _requestCache.Get(inspectorInfo).OrderByDescending(x => x.DateCreated).Take(20);
             return recentRequests;
         }
 
         public void ClearRecentRequests(string inspector)
         {
-            InspectorInfo inspectorInfo = _dbContext.GetInspectorInfoByKey(inspector);
+            var inspectorInfo = _dbContext.GetInspectorInfoByKey(inspector);
+            if (inspectorInfo == null)
+            {
+                throw new Exception("Can't find inspector");
+            }
             _requestCache.RemoveAll(inspectorInfo);
         }
 
@@ -77,12 +131,12 @@ namespace InspectR.Hubs
                 return;
             }
 
-            InspectorInfo inspectorInfo = _dbContext.GetInspectorInfo(id);
+            var inspectorInfo = _dbContext.GetInspectorInfo(id);
             inspectorInfo.Title = title;
             _dbContext.SaveChanges();
         }
 
-        public override System.Threading.Tasks.Task OnConnected()
+        public override Task OnConnected()
         {
             return base.OnConnected();
         }
